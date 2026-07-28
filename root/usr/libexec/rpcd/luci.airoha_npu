@@ -1,6 +1,6 @@
 #!/bin/sh
 # Airoha SoC Status RPC backend for LuCI (NPU + CPU + Overclock)
-# 改进版 v1.1.0: 新增独立CPU温度、PLL备用频率、固件路径fallback
+# v1.1.0: 新增独立CPU温度、PLL备用频率、固件路径fallback
 . /lib/functions.sh
 
 get_status() {
