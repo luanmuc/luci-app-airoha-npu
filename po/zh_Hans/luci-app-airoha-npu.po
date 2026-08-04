@@ -78,8 +78,6 @@ msgid "Grant access to Airoha SoC status (NPU + CPU + Overclock)"
 msgstr "授予 Airoha 芯片状态访问权限（NPU + CPU + 超频）"
 
 #: htdocs/luci-static/resources/view/airoha_npu/status.js:181
-msgid "Healthy"
-msgstr "健康"
 
 #: htdocs/luci-static/resources/view/airoha_npu/status.js:527
 msgid "Index"
@@ -155,32 +153,18 @@ msgid "Frame Engine"
 msgstr "帧转发引擎"
 
 #: htdocs/luci-static/resources/view/airoha_npu/status.js:181
-msgid "Warning"
-msgstr "警告"
 
 #: htdocs/luci-static/resources/view/airoha_npu/status.js:181
-msgid "Critical"
-msgstr "严重"
 
 #: htdocs/luci-static/resources/view/airoha_npu/status.js:194
-msgid "No clients"
-msgstr "无客户端"
 
 #: htdocs/luci-static/resources/view/airoha_npu/status.js:195
-msgid "Idle"
-msgstr "空闲"
 
 #: htdocs/luci-static/resources/view/airoha_npu/status.js:197
-msgid "Poor"
-msgstr "较差"
 
 #: htdocs/luci-static/resources/view/airoha_npu/status.js:197
-msgid "Fair"
-msgstr "一般"
 
 #: htdocs/luci-static/resources/view/airoha_npu/status.js:197
-msgid "Good"
-msgstr "良好"
 
 #: htdocs/luci-static/resources/view/airoha_npu/status.js:238
 msgid "devmem not available on this build"

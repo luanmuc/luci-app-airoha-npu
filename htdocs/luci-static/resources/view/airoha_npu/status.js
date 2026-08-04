@@ -6,7 +6,6 @@
 
 var callNpuStatus = rpc.declare({ object: 'luci.airoha_npu', method: 'getStatus' });
 var callPpeEntries = rpc.declare({ object: 'luci.airoha_npu', method: 'getPpeEntries' });
-var callTokenInfo = rpc.declare({ object: 'luci.airoha_npu', method: 'getTokenInfo' });
 var callFrameEngine = rpc.declare({ object: 'luci.airoha_npu', method: 'getFrameEngine' });
 var callSetGovernor = rpc.declare({ object: 'luci.airoha_npu', method: 'setGovernor', params: ['governor'] });
 var callSetMaxFreq = rpc.declare({ object: 'luci.airoha_npu', method: 'setMaxFreq', params: ['freq'] });
@@ -22,7 +21,6 @@ var themeCSS = '\
 .soc-bar-track{background:var(--soc-bar-track);border-radius:4px;overflow:hidden}\
 .soc-pse-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px}\
 .soc-pse-cell{background:var(--soc-card-bg);border:1px solid var(--soc-border);border-radius:5px;padding:6px 8px;font-size:12px;transition:border-color .3s}\
-.soc-band-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px}\
 .soc-gdm-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px}\
 .soc-gdm-grid .soc-card{min-width:0}\
 .soc-cdm-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:10px}\
@@ -35,7 +33,6 @@ var themeCSS = '\
 @media(max-width:768px){\
   .soc-gdm-grid{grid-template-columns:1fr;gap:8px}\
   .soc-cdm-grid{grid-template-columns:1fr;gap:8px}\
-  .soc-band-grid{grid-template-columns:1fr;gap:8px}\
   .soc-pse-grid{grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:4px}\
   .soc-card{padding:12px}\
   #fe-diagram .soc-card{padding:10px 12px}\
@@ -141,11 +138,6 @@ function injectCSS() {
 }
 
 /* ── Helpers ── */
-var bandInfo = [
-	{ name: '2.4 GHz', accent: '#ff9800' },
-	{ name: '5 GHz', accent: '#2196f3' },
-	{ name: '6 GHz', accent: '#9c27b0' }
-];
 
 var psePortMap = [
 	{ name: 'CDM1', label: 'CPU DMA 1',   color: '#607d8b' },
@@ -155,7 +147,6 @@ var psePortMap = [
 	{ name: 'PPE1', label: 'PPE Eng 1',   color: '#2196f3' },
 	{ name: 'CDM2', label: 'CPU DMA 2',   color: '#607d8b' },
 	{ name: 'CDM3', label: 'CDM3',        color: '#607d8b' },
-	{ name: 'CDM4', label: 'WDMA WiFi',   color: '#9c27b0' },
 	{ name: 'PPE2', label: 'PPE Eng 2',   color: '#2196f3' },
 	{ name: 'GDM4', label: 'LAN2 10G',    color: '#4caf50' }
 ];
@@ -175,68 +166,12 @@ function calcTotalMem(regions) {
 	});
 	return t >= 1024 ? (t/1024).toFixed(0)+' MiB' : t+' KiB';
 }
-function tokenHealth(c, s) {
-	if (!s) return { text: 'N/A', color: '#888' };
-	var p = c/s*100;
-	return p < 50 ? { text:_('Healthy'), color:'#4caf50' } : p < 80 ? { text:_('Warning'), color:'#ff9800' } : { text:_('Critical'), color:'#f44336' };
-}
-function getBandStats(ti, b) {
-	var c = Array.isArray(ti.station_counts) ? ti.station_counts : [];
-	for (var i=0;i<c.length;i++) if (c[i].band===b) return c[i];
-	return { band:b, count:0, tx_packets:0, tx_retries:0 };
-}
-function getTxQueue(ti, b) {
-	var q = Array.isArray(ti.tx_queues) ? ti.tx_queues : [];
-	for (var i=0;i<q.length;i++) if (q[i].band===b) return q[i];
-	return null;
-}
-function bandHealth(s) {
-	if (!s || s.count===0) return { text:_('No clients'), color:'#888' };
-	if (!s.tx_packets) return { text:_('Idle'), color:'#888' };
-	var r = s.tx_retries/(s.tx_packets+s.tx_retries);
-	return r>0.5 ? {text:_('Poor'),color:'#f44336'} : r>0.2 ? {text:_('Fair'),color:'#ff9800'} : {text:_('Good'),color:'#4caf50'};
-}
-function retryPct(s) {
-	if (!s || !s.tx_packets) return '-';
-	return (s.tx_retries/(s.tx_packets+s.tx_retries)*100).toFixed(1)+'%';
-}
 
-/* ── Mini Band Chip (compact for FE diagram) ── */
-function renderBandChip(band, txQ, stats) {
-	var info = bandInfo[band] || { name: 'Band '+band, accent: '#888' };
-	var id = 'band-'+band;
-	var h = bandHealth(stats);
-	var type = txQ ? txQ.type : '?';
-	var rp = retryPct(stats);
-	return E('div', { 'id': id, 'style': 'background:var(--soc-card-bg);border:1px solid var(--soc-border);border-left:2px solid '+info.accent+';border-radius:6px;padding:10px 12px' }, [
-		E('div', { 'style': 'display:flex;justify-content:space-between;align-items:center;margin-bottom:6px' }, [
-			E('span', { 'class': 'soc-text', 'style': 'font-size:13px;font-weight:bold' }, info.name),
-			E('span', { 'style': 'background:'+(type==='npu'?'#1565c0':'#666')+';color:#fff;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:600' }, type.toUpperCase())
-		]),
-		E('div', { 'style': 'display:flex;justify-content:space-between;align-items:center;font-size:12px' }, [
-			E('div', { 'id': id+'-health', 'style': 'display:flex;align-items:center;gap:4px' }, [
-				E('span', { 'style': 'width:7px;height:7px;border-radius:50%;background:'+h.color+';display:inline-block' }),
-				E('span', { 'style': 'color:'+h.color+';font-weight:500' }, h.text)
-			]),
-			E('span', { 'id': id+'-clients', 'class': 'soc-muted' }, stats.count + ' sta'),
-			(stats.tx_packets > 0) ? E('span', { 'id': id+'-retries', 'class': 'soc-muted' }, rp) : E('span')
-		])
-	]);
-}
-function updateBandChip(band, stats) {
-	var id = 'band-'+band, h = bandHealth(stats);
-	var el = document.getElementById(id+'-health');
-	if (el) { el.innerHTML = ''; el.appendChild(E('span',{'style':'width:6px;height:6px;border-radius:50%;background:'+h.color+';display:inline-block'})); el.appendChild(E('span',{'style':'color:'+h.color+';font-weight:500;font-size:11px'},h.text)); }
-	var cl = document.getElementById(id+'-clients');
-	if (cl) cl.textContent = stats.count+'sta';
-	var re = document.getElementById(id+'-retries');
-	if (re) { var rp2 = retryPct(stats); re.textContent = rp2; }
-}
 
-/* ── Frame Engine Diagram (with WiFi bands, NPU, PPE flows) ── */
-function renderFeDiagram(fe, ti, st) {
+/* ── Frame Engine Diagram (NPU, PPE, and Ethernet offload) ── */
+function renderFeDiagram(fe, st) {
+	st = st || {};
 	if (!fe || fe.error) return E('div', { 'class': 'soc-muted' }, _('devmem not available on this build'));
-	ti = ti || {}; st = st || {};
 	var ports = Array.isArray(fe.pse_ports) ? fe.pse_ports : [];
 
 	// Helper: GDM card
@@ -283,25 +218,6 @@ function renderFeDiagram(fe, ti, st) {
 		]);
 	}
 
-	// WiFi band chips for CDM4
-	var bandChips = [];
-	for (var b = 0; b < 3; b++) bandChips.push(renderBandChip(b, getTxQueue(ti, b), getBandStats(ti, b)));
-
-	// CDM4/WDMA + WiFi bands grouped
-	var p7 = ports[7] || { iq: 0, oq: 0, drops: 0 };
-	var cdm4WiFi = E('div', { 'class': 'soc-card soc-card-accent', 'style': 'border-left-color:#9c27b0' }, [
-		E('div', { 'style': 'display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px' }, [
-			E('span', { 'style': 'font-weight:bold;color:#9c27b0;font-size:14px' }, 'CDM4 / WDMA'),
-			E('span', { 'class': 'soc-label' }, 'P7 WiFi DMA')
-		]),
-		E('div', { 'style': 'display:flex;gap:12px;font-size:11px;margin-bottom:8px' }, [
-			E('span', { 'class': 'soc-muted' }, 'IQ '+p7.iq),
-			E('span', { 'class': 'soc-muted' }, 'OQ '+p7.oq),
-			p7.drops > 0 ? E('span', { 'style': 'color:#f44336' }, 'Drop '+fmtK(p7.drops)) : null
-		].filter(Boolean)),
-		// WiFi bands inside
-		E('div', { 'class': 'soc-band-grid' }, bandChips)
-	]);
 
 	// NPU indicator
 	var npuActive = st.npu_loaded;
@@ -313,7 +229,7 @@ function renderFeDiagram(fe, ti, st) {
 		E('div', { 'class': 'soc-label', 'style': 'margin-bottom:4px' }, '8x RISC-V via PCIe RAM'),
 		E('div', { 'style': 'font-size:11px' }, [
 			E('span', { 'class': 'soc-muted' }, _('Manages: ')),
-			E('span', { 'class': 'soc-text', 'style': 'font-size:11px' }, _('PPE init, WDMA rings, flow stats'))
+			E('span', { 'class': 'soc-text', 'style': 'font-size:11px' }, _('PPE init, flow offload, packet processing'))
 		])
 	]);
 
@@ -340,7 +256,7 @@ function renderFeDiagram(fe, ti, st) {
 	var pseP = pseT>0 ? ((fe.pse_used/pseT)*100).toFixed(1) : '0';
 	var pseCol = parseFloat(pseP)>80?'#f44336':parseFloat(pseP)>50?'#ff9800':'#4caf50';
 
-	// PSE port cells (skip P7 since it's shown in CDM4/WiFi section)
+	// PSE port cells (skip P7 WiFi DMA)
 	var portCells = ports.filter(function(p){ return p.port !== 7; }).map(function(p) {
 		var info = psePortMap[p.port] || { name:'P'+p.port, label:'?', color:'#666' };
 		var drop = p.drops > 0;
@@ -371,11 +287,10 @@ function renderFeDiagram(fe, ti, st) {
 			gdmCard('gdm2', 'GDM2', 'WAN (USXGMII 10G)', '#4caf50', 'P2'),
 			gdmCard('gdm4', 'GDM4', 'LAN2 (USXGMII 10G)', '#4caf50', 'P9')
 		]),
-		// Row 2: CDM1/CDM2 (CPU) + CDM4/WiFi
-		E('div', { 'style': 'display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px' }, [
+		// Row 2: CDM1/CDM2 (CPU DMA)
+		E('div', { 'style': 'display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px' }, [
 			cdmCard('cdm1', 'CDM1', 'CPU DMA 1', 'P0'),
 			cdmCard('cdm2', 'CDM2', 'CPU DMA 2', 'P5'),
-			cdm4WiFi
 		]),
 		// Row 3: PPE + NPU
 		E('div', { 'style': 'display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px' }, [
@@ -476,11 +391,11 @@ function renderPpeRows(entries) {
 /* ── Main View ── */
 return view.extend({
 	load: function() {
-		return Promise.all([ callNpuStatus(), callPpeEntries(), callTokenInfo(), callFrameEngine() ]);
+		return Promise.all([ callNpuStatus(), callPpeEntries(), callFrameEngine() ]);
 	},
 	render: function(data) {
 		injectCSS();
-		var st = data[0]||{}, ppe = data[1]||{}, ti = data[2]||{}, fe = data[3]||{};
+		var st = data[0]||{}, ppe = data[1]||{}, fe = data[2]||{};
 		var entries = Array.isArray(ppe.entries) ? ppe.entries : [];
 		var memR = Array.isArray(st.memory_regions) ? st.memory_regions : [];
 		var freqSource = st.cpu_freq_source || 'cpufreq';
@@ -514,9 +429,9 @@ return view.extend({
 					E('tr',{'class':'tr'},[ E('td',{'class':'td'},E('strong',{},_('Reserved Memory'))),
 						E('td',{'class':'td','id':'npu-memory'}, calcTotalMem(memR)+' ('+memR.length+' regions)') ])
 				]),
-				// Frame Engine diagram (includes WiFi bands, PPE flows, NPU indicator)
+				// Frame Engine diagram (includes PPE flows, NPU, and Ethernet ports)
 				E('div',{'style':'margin-top:12px'},[ E('h4',{'class':'soc-text','style':'font-size:14px;margin-bottom:8px'},_('Frame Engine'))]),
-				E('div',{'id':'fe-container'}, renderFeDiagram(fe, ti, st))
+				E('div',{'id':'fe-container'}, renderFeDiagram(fe, st))
 			]),
 			// PPE Flow Table - with responsive scroll wrapper
 			E('div',{'class':'cbi-section'},[
@@ -533,9 +448,9 @@ return view.extend({
 		]);
 
 		poll.add(L.bind(function() {
-			return Promise.all([ callNpuStatus(), callPpeEntries(), callTokenInfo(), callFrameEngine() ]).then(L.bind(function(d) {
+			return Promise.all([ callNpuStatus(), callPpeEntries(), callFrameEngine() ]).then(L.bind(function(d) {
 				injectCSS();
-				var st=d[0]||{}, ppe=d[1]||{}, ti=d[2]||{}, fe=d[3]||{};
+				var st=d[0]||{}, ppe=d[1]||{}, fe=d[2]||{};
 				var entries = Array.isArray(ppe.entries)?ppe.entries:[];
 				var freqSrc = st.cpu_freq_source || 'cpufreq';
 
@@ -554,7 +469,7 @@ return view.extend({
 				var se=document.getElementById('npu-status');
 				if(se){se.innerHTML='';var sp=document.createElement('span');sp.className=st.npu_loaded?'label-success':'label-danger';sp.textContent=st.npu_loaded?(_('Active')+(st.npu_device?' ('+st.npu_device+')':'')):_('Not Active');se.appendChild(sp);}
 
-				var fc=document.getElementById('fe-container'); if(fc){fc.innerHTML='';fc.appendChild(renderFeDiagram(fe, ti, st));}
+				var fc=document.getElementById('fe-container'); if(fc){fc.innerHTML='';fc.appendChild(renderFeDiagram(fe, st));}
 
 				var tb=document.getElementById('ppe-entries-table');
 				if(tb){while(tb.rows.length>1)tb.deleteRow(1);renderPpeRows(entries).forEach(function(r){tb.appendChild(r);});}

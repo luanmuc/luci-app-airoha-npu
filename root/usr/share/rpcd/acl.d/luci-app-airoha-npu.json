@@ -3,13 +3,12 @@
 		"description": "Grant access to Airoha SoC status (NPU + CPU + Overclock)",
 		"read": {
 			"ubus": {
-				"luci.airoha_npu": [ "getStatus", "getPpeEntries", "getTokenInfo", "getFrameEngine" ]
+				"luci.airoha_npu": [ "getStatus", "getPpeEntries", "getFrameEngine" ]
 			},
 			"file": {
 				"/sys/kernel/debug/ppe/entries": [ "read" ],
 				"/sys/kernel/debug/ppe/bind": [ "read" ],
-				"/sys/devices/system/cpu/cpufreq/policy0/*": [ "read" ],
-				"/sys/kernel/debug/ieee80211/*/mt76/token_info": [ "read" ]
+				"/sys/devices/system/cpu/cpufreq/policy0/*": [ "read" ]
 			}
 		},
 		"write": {
