@@ -133,7 +133,6 @@ luci-app-airoha-npu/
 ### v1.0.1
 - Unified Frame Engine diagram with architectural layout matching AN7581 data paths
 - Added NPU and PPE Engine cards with live status and flow counts
-- Token pool and PPE flows removed from summary table (now in Frame Engine view)
 - Fixed GDM4 register addresses (0x2500, not 0x3500)
 
 ### v1.0.0
