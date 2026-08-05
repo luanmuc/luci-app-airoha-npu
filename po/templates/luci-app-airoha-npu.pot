@@ -76,8 +76,6 @@ msgid "Grant access to Airoha SoC status (NPU + CPU + Overclock)"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/airoha_npu/status.js:181
-msgid "Healthy"
-msgstr ""
 
 #: htdocs/luci-static/resources/view/airoha_npu/status.js:527
 msgid "Index"
@@ -153,32 +151,13 @@ msgid "Frame Engine"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/airoha_npu/status.js:181
-msgid "Warning"
-msgstr ""
 
 #: htdocs/luci-static/resources/view/airoha_npu/status.js:181
-msgid "Critical"
-msgstr ""
 
-#: htdocs/luci-static/resources/view/airoha_npu/status.js:194
-msgid "No clients"
-msgstr ""
 
-#: htdocs/luci-static/resources/view/airoha_npu/status.js:195
-msgid "Idle"
-msgstr ""
 
-#: htdocs/luci-static/resources/view/airoha_npu/status.js:197
-msgid "Poor"
-msgstr ""
 
-#: htdocs/luci-static/resources/view/airoha_npu/status.js:197
-msgid "Fair"
-msgstr ""
 
-#: htdocs/luci-static/resources/view/airoha_npu/status.js:197
-msgid "Good"
-msgstr ""
 
 #: htdocs/luci-static/resources/view/airoha_npu/status.js:238
 msgid "devmem not available on this build"
@@ -205,7 +184,7 @@ msgid "Manages: "
 msgstr ""
 
 #: htdocs/luci-static/resources/view/airoha_npu/status.js:316
-msgid "PPE init, WDMA rings, flow stats"
+msgid "PPE init, flow offload, packet processing"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/airoha_npu/status.js:361

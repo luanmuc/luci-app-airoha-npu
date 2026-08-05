@@ -191,8 +191,8 @@ msgid "Manages: "
 msgstr "管理："
 
 #: htdocs/luci-static/resources/view/airoha_npu/status.js:316
-msgid "PPE init, WDMA rings, flow stats"
-msgstr "PPE 初始化、WDMA 环形缓冲区、流统计"
+msgid "PPE init, flow offload, packet processing"
+msgstr "PPE 初始化、流卸载、数据包处理"
 
 #: htdocs/luci-static/resources/view/airoha_npu/status.js:361
 msgid "PSE Shared Buffer"

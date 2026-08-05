@@ -2,12 +2,11 @@
 
 Real-time monitoring and management dashboard for the Airoha AN7581 SoC on OpenWrt. Covers NPU offload, CPU frequency, Frame Engine internals, and PPE flow tables.
 
-**[Download](https://github.com/rchen14b/luci-app-airoha-npu/releases/latest)**
+**[Download](https://github.com/luanmuc/luci-app-airoha-npu/releases/latest)**
 
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![OpenWrt](https://img.shields.io/badge/OpenWrt-24.10%2B-brightgreen.svg)
-![Version](https://img.shields.io/badge/version-1.0.1-orange.svg)
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow?style=flat&logo=buy-me-a-coffee)](https://buymeacoffee.com/rchen14b)
+![Version](https://img.shields.io/badge/version-1.2.1-orange.svg)
 
 ## Screenshots
 
@@ -65,7 +64,7 @@ Real-time monitoring and management dashboard for the Airoha AN7581 SoC on OpenW
 ### From OpenWrt build
 ```sh
 # Add to your build tree
-git clone https://github.com/rchen14b/luci-app-airoha-npu.git package/luci-app-airoha-npu
+git clone https://github.com/luanmuc/luci-app-airoha-npu.git package/luci-app-airoha-npu
 
 # Enable in menuconfig
 make menuconfig
@@ -129,6 +128,31 @@ luci-app-airoha-npu/
 | `setOverclock` | Direct PLL frequency set | `freq_mhz` |
 
 ## Version History
+
+### v1.2.1
+- Fixed PSE port mapping table (corrected P0-P9 indices, added missing P9)
+- Fixed translation string mismatches (updated NPU description)
+- Fixed JSON output escaping for special characters
+- Fixed sleep 0.02 compatibility issue (switched to usleep)
+- Fixed PPE entry type field trailing space
+- Added dmesg parsing fallback to /proc/iomem
+- Added overclock error rollback mechanism
+- Added GDM3 counter documentation
+- Improved Argon theme detection (light mode support)
+- Updated README version badge and download links
+
+### v1.2.0
+- Cleaned up WiFi-related features for XG-040G-MD wired-only device
+- Removed WiFi DMA port from PSE queue display
+- Updated UI descriptions for pure wired Ethernet configuration
+- Fixed rpcd script permissions
+
+### v1.1.0
+- Added independent CPU temperature reading from thermal_zone0
+- Added PLL register fallback frequency when cpufreq unavailable
+- Added firmware path fallback for EN7581 compatibility
+- Improved dark mode and responsive layout
+
 
 ### v1.0.1
 - Unified Frame Engine diagram with architectural layout matching AN7581 data paths

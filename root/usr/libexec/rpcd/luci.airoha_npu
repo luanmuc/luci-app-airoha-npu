@@ -1,7 +1,11 @@
 #!/bin/sh
 # Airoha SoC Status RPC backend for LuCI (NPU + CPU + Overclock)
-# v1.1.0: 新增独立CPU温度、PLL备用频率、固件路径fallback
-. /lib/functions.sh
+# v1.2.1: 修复14个已知问题（PSE映射、翻译、版本号、JSON转义等）
+
+# Simple JSON string escape (handles backslash and double quotes)
+json_escape() {
+	echo "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
 
 get_status() {
 	# === NPU Status ===
@@ -48,25 +52,54 @@ get_status() {
 	local offload_bound=$(cat /sys/kernel/debug/ppe/bind 2>/dev/null | grep -c "^[0-9a-fA-F]")
 	local offload_total=$(cat /sys/kernel/debug/ppe/entries 2>/dev/null | grep -c "^[0-9a-fA-F]")
 
-	local mem_info=$(dmesg | grep "reserved mem.*npu" | head -4)
+	local mem_info=$(dmesg 2>/dev/null | grep "reserved mem.*npu" | head -4)
 	local regions="[]"
 	if [ -n "$mem_info" ]; then
-		regions=$(echo "$mem_info" | awk '
+		local parsed=$(echo "$mem_info" | awk '
 		BEGIN { printf "[" }
 		{
 			if (NR > 1) printf ","
 			match($0, /0x[0-9a-fA-F]+\.\.0x[0-9a-fA-F]+/)
+			if (RSTART == 0) next
 			range = substr($0, RSTART, RLENGTH)
 			split(range, a, "\\.\\.")
 			match($0, /\([0-9]+ [KMG]i?B\)/)
+			if (RSTART == 0) next
 			size = substr($0, RSTART+1, RLENGTH-2)
 			match($0, /non-reusable [^ ]+/)
+			if (RSTART == 0) next
 			name = substr($0, RSTART+13)
 			gsub(/@.*/, "", name)
 			printf "{\"name\":\"%s\",\"start\":\"%s\",\"end\":\"%s\",\"size\":\"%s\"}", name, a[1], a[2], size
 		}
 		END { printf "]" }
-		')
+		' 2>/dev/null)
+		# Validate: ensure output is a JSON array, fallback to empty if invalid
+		if echo "$parsed" | grep -q '^\[.*\]$'; then
+			regions="$parsed"
+		fi
+	fi
+	# Fallback: try /proc/iomem if dmesg parsing returned empty
+	if [ "$regions" = "[]" ] && [ -f /proc/iomem ]; then
+		local iomem_info=$(grep -i npu /proc/iomem 2>/dev/null | head -4)
+		if [ -n "$iomem_info" ]; then
+			local parsed_iomem=$(echo "$iomem_info" | awk '
+			BEGIN { printf "[" }
+			{
+				if (NR > 1) printf ","
+				split($1, a, "-")
+				start = "0x" a[1]
+				end = "0x" a[2]
+				name = substr($0, index($0, ":") + 2)
+				gsub(/^[ \t]+|[ \t]+$/, "", name)
+				printf "{\"name\":\"%s\",\"start\":\"%s\",\"end\":\"%s\",\"size\":\"N/A\"}", name, start, end
+			}
+			END { printf "]" }
+			' 2>/dev/null)
+			if echo "$parsed_iomem" | grep -q '^\[.*\]$'; then
+				regions="$parsed_iomem"
+			fi
+		fi
 	fi
 
 	# === CPU Frequency Status ===
@@ -135,9 +168,15 @@ get_status() {
 		cpu_count=$(ls -d /sys/devices/system/cpu/cpu[0-9]* 2>/dev/null | wc -l)
 	fi
 
+	local npu_ver_esc=$(json_escape "${npu_ver:-Unknown}")
+	local npu_dev_esc=$(json_escape "${npu_device:-}")
+	local gov_esc=$(json_escape "${cpu_governor:-unknown}")
+	local govs_esc=$(json_escape "${cpu_avail_governors:-}")
+	local freqs_esc=$(json_escape "${cpu_avail_freqs:-}")
+	local src_esc=$(json_escape "${cpu_freq_source:-cpufreq}")
 	printf '{"npu_version":"%s","npu_loaded":%s,"npu_device":"%s","npu_clock":%d,"npu_cores":%d,"offload_bound":%d,"offload_total":%d,"memory_regions":%s,"cpu_cur_freq":%d,"cpu_hw_freq":%d,"cpu_governor":"%s","cpu_avail_governors":"%s","cpu_min_freq":%d,"cpu_max_freq":%d,"cpu_avail_freqs":"%s","cpu_count":%d,"pll_freq_mhz":%d,"cpu_freq_source":"%s","cpu_temp":%d}' \
-		"${npu_ver:-Unknown}" "$npu_loaded" "${npu_device:-}" "${npu_clock:-0}" "${npu_cores:-0}" "${offload_bound:-0}" "${offload_total:-0}" "$regions" \
-		"${cpu_cur_freq:-0}" "${cpu_hw_freq:-0}" "${cpu_governor:-unknown}" "${cpu_avail_governors:-}" "${cpu_min_freq:-0}" "${cpu_max_freq:-0}" "${cpu_avail_freqs:-}" "${cpu_count:-0}" "${pll_freq_mhz:-0}" "${cpu_freq_source:-cpufreq}" "${cpu_temp:-0}"
+		"$npu_ver_esc" "$npu_loaded" "$npu_dev_esc" "${npu_clock:-0}" "${npu_cores:-0}" "${offload_bound:-0}" "${offload_total:-0}" "$regions" \
+		"${cpu_cur_freq:-0}" "${cpu_hw_freq:-0}" "$gov_esc" "$govs_esc" "${cpu_min_freq:-0}" "${cpu_max_freq:-0}" "$freqs_esc" "${cpu_count:-0}" "${pll_freq_mhz:-0}" "$src_esc" "${cpu_temp:-0}"
 }
 
 get_ppe_entries() {
@@ -183,8 +222,10 @@ get_ppe_entries() {
 		if (RSTART > 0) {
 			eth = substr($0, RSTART+4, RLENGTH-4)
 		}
-		printf "{\"index\":\"%s\",\"state\":\"%s\",\"type\":\"%s %s\",\"orig\":\"%s\",\"new_flow\":\"%s\",\"eth\":\"%s\"}", \
-			index_val, state, type, subtype, orig, new_flow, eth
+		type_str = type
+		if (subtype != "") type_str = type " " subtype
+		printf "{\"index\":\"%s\",\"state\":\"%s\",\"type\":\"%s\",\"orig\":\"%s\",\"new_flow\":\"%s\",\"eth\":\"%s\"}", \
+			index_val, state, type_str, orig, new_flow, eth
 	}
 	END {
 		printf "]}"
@@ -261,32 +302,75 @@ set_overclock() {
 	fi
 	# Lock governor to performance to prevent cpufreq from fighting
 	echo performance > /sys/devices/system/cpu/cpufreq/policy0/scaling_governor 2>/dev/null
+	# Save original register values for rollback on failure
+	local orig_clkmux=$(($(devmem 0x1fa201e0 2>/dev/null)))
+	local orig_pcw=$(($(devmem 0x1fa202b4 2>/dev/null)))
+	local orig_chg=$(($(devmem 0x1fa202b8 2>/dev/null)))
+	local orig_u=$(($(devmem 0x1efbe640 2>/dev/null)))
+	local orig_s=$(($(devmem 0x1efbe7c0 2>/dev/null)))
+	local orig_p=$(($(devmem 0x1fa20268 2>/dev/null)))
+	# Rollback helper: restore all registers to original state
+	rollback_oc() {
+		devmem 0x1fa201e0 32 $(printf "0x%08X" $orig_clkmux) 2>/dev/null
+		devmem 0x1fa202b4 32 $(printf "0x%08X" $orig_pcw) 2>/dev/null
+		devmem 0x1fa202b8 32 $(printf "0x%08X" $orig_chg) 2>/dev/null
+		devmem 0x1efbe640 32 $(printf "0x%08X" $orig_u) 2>/dev/null
+		devmem 0x1efbe7c0 32 $(printf "0x%08X" $orig_s) 2>/dev/null
+		devmem 0x1fa20268 32 $(printf "0x%08X" $orig_p) 2>/dev/null
+	}
 	# Read current register values
-	local cur_clkmux=$(($(devmem 0x1fa201e0)))
-	local cur_pcw=$(($(devmem 0x1fa202b4)))
-	local cur_chg=$(($(devmem 0x1fa202b8)))
+	local cur_clkmux=$orig_clkmux
+	local cur_pcw=$orig_pcw
+	local cur_chg=$orig_chg
 	# Step 1: Enable PLL2 path in CLK_MUX (set bit 2)
-	devmem 0x1fa201e0 32 $(printf "0x%08X" $((cur_clkmux | 0x4)))
+	devmem 0x1fa201e0 32 $(printf "0x%08X" $((cur_clkmux | 0x4))) 2>/dev/null
+	if [ $? -ne 0 ]; then rollback_oc; echo '{"error":"failed at step 1: enable PLL2"}'; return; fi
 	# Step 2: MCUCFG switch to PLL2 (sel=3 in bits[10:9])
-	local cur_u=$(($(devmem 0x1efbe640)))
-	devmem 0x1efbe640 32 $(printf "0x%08X" $(((cur_u & 0xFFFFFFE0) | 0x12)))
-	local cur_s=$(($(devmem 0x1efbe7c0)))
-	devmem 0x1efbe7c0 32 $(printf "0x%08X" $(((cur_s & 0xFFFFF9FF) | (3 << 9))))
+	local cur_u=$(($(devmem 0x1efbe640 2>/dev/null)))
+	devmem 0x1efbe640 32 $(printf "0x%08X" $(((cur_u & 0xFFFFFFE0) | 0x12))) 2>/dev/null
+	if [ $? -ne 0 ]; then rollback_oc; echo '{"error":"failed at step 2: MCUCFG switch"}'; return; fi
+	local cur_s=$(($(devmem 0x1efbe7c0 2>/dev/null)))
+	devmem 0x1efbe7c0 32 $(printf "0x%08X" $(((cur_s & 0xFFFFF9FF) | (3 << 9)))) 2>/dev/null
+	if [ $? -ne 0 ]; then rollback_oc; echo '{"error":"failed at step 2: MCUCFG switch 2"}'; return; fi
 	# Step 3: Unlock PLL registers
-	local cur_p=$(($(devmem 0x1fa20268)))
-	devmem 0x1fa20268 32 $(printf "0x%08X" $(((cur_p & 0xFFFFFF00) | 0x12)))
-	# Step 4: Write new PCW integer
-	devmem 0x1fa202b4 32 $(printf "0x%08X" $(((cur_pcw & 0x00FFFFFF) | (pcw_int << 24))))
-	# Step 5: Write posdiv and toggle CHG bit
+	local cur_p=$(($(devmem 0x1fa20268 2>/dev/null)))
+	devmem 0x1fa20268 32 $(printf "0x%08X" $(((cur_p & 0xFFFFFF00) | 0x12))) 2>/dev/null
+	if [ $? -ne 0 ]; then rollback_oc; echo '{"error":"failed at step 3: unlock PLL"}'; return; fi
+	# Step 4: Write new PCW integer (critical: verify after write)
+	local new_pcw_val=$(( (cur_pcw & 0x00FFFFFF) | (pcw_int << 24) ))
+	devmem 0x1fa202b4 32 $(printf "0x%08X" $new_pcw_val) 2>/dev/null
+	if [ $? -ne 0 ]; then rollback_oc; echo '{"error":"failed at step 4: write PCW"}'; return; fi
+	# Verify PCW write
+	local verify_pcw=$(($(devmem 0x1fa202b4 2>/dev/null)))
+	if [ "$verify_pcw" != "$new_pcw_val" ]; then
+		rollback_oc
+		echo '{"error":"PCW write verification failed"}'
+		return
+	fi
+	# Step 5: Write posdiv and toggle CHG bit (critical: verify after write)
 	local chg_bit=$((cur_chg & 1))
 	local cleared=$((cur_chg & 0xFFFFFF8E))
+	local new_chg_val
 	if [ "$chg_bit" -eq 1 ]; then
-		devmem 0x1fa202b8 32 $(printf "0x%08X" $((cleared | (posdiv << 4))))
+		new_chg_val=$((cleared | (posdiv << 4)))
 	else
-		devmem 0x1fa202b8 32 $(printf "0x%08X" $((cleared | (posdiv << 4) | 1)))
+		new_chg_val=$((cleared | (posdiv << 4) | 1))
 	fi
-	# Step 6: Wait for PLL lock
-	sleep 0.02
+	devmem 0x1fa202b8 32 $(printf "0x%08X" $new_chg_val) 2>/dev/null
+	if [ $? -ne 0 ]; then rollback_oc; echo '{"error":"failed at step 5: write CHG"}'; return; fi
+	# Verify CHG write
+	local verify_chg=$(($(devmem 0x1fa202b8 2>/dev/null)))
+	if [ "$verify_chg" != "$new_chg_val" ]; then
+		rollback_oc
+		echo '{"error":"CHG write verification failed"}'
+		return
+	fi
+	# Step 6: Wait for PLL lock (use usleep for better compatibility)
+	if command -v usleep > /dev/null 2>&1; then
+		usleep 20000
+	else
+		sleep 1
+	fi
 	# Step 7: Enable ARMPLL path in CLK_MUX (set bit 0)
 	local cur_clkmux2=$(($(devmem 0x1fa201e0)))
 	devmem 0x1fa201e0 32 $(printf "0x%08X" $((cur_clkmux2 | 0x1)))
@@ -339,6 +423,8 @@ get_frame_engine() {
 	local pse_free=$(( psb & 0x7FFF ))
 	# GDM counters (TX_OK, TX_DROP, RX_OK, RX_FC_DROP, RX_OVER_DROP)
 	# Read as hex to handle large 32-bit counters
+	# Note: GDM3 is not used on XG-040G-MD (hardware not connected / unused),
+	#       so only GDM1, GDM2, and GDM4 counters are read.
 	local gdm1_tx=$(($(devmem 0x1fb50604)))
 	local gdm1_txd=$(($(devmem 0x1fb50608)))
 	local gdm1_rx=$(($(devmem 0x1fb50648)))

@@ -71,10 +71,11 @@ function isDarkMode() {
 }
 
 function isArgonTheme() {
-	// Detect Argon theme by checking for known classes or attributes
+	// Detect Argon theme by checking for known classes or attributes (light or dark)
 	var body = document.body;
 	if (body.classList.contains('dark-theme') || body.classList.contains('argon-dark')) return true;
-	if (body.getAttribute('data-theme') === 'dark') return true;
+	if (body.classList.contains('light-theme') || body.classList.contains('argon-light')) return true;
+	if (body.getAttribute('data-theme') === 'dark' || body.getAttribute('data-theme') === 'light') return true;
 	// Check for Argon-specific CSS variables
 	var testEl = document.createElement('div');
 	testEl.style.display = 'none';
@@ -82,7 +83,7 @@ function isArgonTheme() {
 	var cs = window.getComputedStyle(testEl);
 	var hasArgonVar = cs.getPropertyValue('--argon-primary') !== '' || cs.getPropertyValue('--primary-color') !== '';
 	document.body.removeChild(testEl);
-	return hasArgonVar && isDarkMode();
+	return hasArgonVar;
 }
 
 var _lastDarkMode = null;
@@ -140,14 +141,15 @@ function injectCSS() {
 /* ── Helpers ── */
 
 var psePortMap = [
-	{ name: 'CDM1', label: 'CPU DMA 1',   color: '#607d8b' },
 	{ name: 'GDM1', label: 'Switch 1G',   color: '#ff9800' },
 	{ name: 'GDM2', label: 'WAN 10G',     color: '#4caf50' },
+	{ name: 'CDM1', label: 'CPU DMA 1',   color: '#607d8b' },
 	{ name: 'GDM3', label: 'GDM3',        color: '#607d8b' },
-	{ name: 'PPE1', label: 'PPE Eng 1',   color: '#2196f3' },
 	{ name: 'CDM2', label: 'CPU DMA 2',   color: '#607d8b' },
-	{ name: 'CDM3', label: 'CDM3',        color: '#607d8b' },
+	{ name: 'PPE0', label: 'PPE Eng 0',   color: '#2196f3' },
+	{ name: 'PPE1', label: 'PPE Eng 1',   color: '#2196f3' },
 	{ name: 'PPE2', label: 'PPE Eng 2',   color: '#2196f3' },
+	{ name: 'CDM3', label: 'CPU DMA 3',   color: '#607d8b' },
 	{ name: 'GDM4', label: 'LAN2 10G',    color: '#4caf50' }
 ];
 
@@ -237,7 +239,7 @@ function renderFeDiagram(fe, st) {
 	var ppeCard = E('div', { 'class': 'soc-card', 'style': 'border-color:#2196f3' }, [
 		E('div', { 'style': 'display:flex;justify-content:space-between;align-items:center;margin-bottom:4px' }, [
 			E('span', { 'style': 'font-weight:bold;color:#2196f3;font-size:14px' }, 'PPE Engines'),
-			E('span', { 'class': 'soc-label' }, 'P4 + P8')
+			E('span', { 'class': 'soc-label' }, 'P5 / P6 / P7')
 		]),
 		E('div', { 'style': 'display:flex;gap:16px;font-size:12px' }, [
 			E('span', {}, [
@@ -256,8 +258,8 @@ function renderFeDiagram(fe, st) {
 	var pseP = pseT>0 ? ((fe.pse_used/pseT)*100).toFixed(1) : '0';
 	var pseCol = parseFloat(pseP)>80?'#f44336':parseFloat(pseP)>50?'#ff9800':'#4caf50';
 
-	// PSE port cells (skip P7 WiFi DMA)
-	var portCells = ports.filter(function(p){ return p.port !== 7; }).map(function(p) {
+	// PSE port cells (all 10 ports: P0-P9)
+	var portCells = ports.map(function(p) {
 		var info = psePortMap[p.port] || { name:'P'+p.port, label:'?', color:'#666' };
 		var drop = p.drops > 0;
 		return E('div', { 'class': 'soc-pse-cell', 'style': drop ? 'border-color:#f44336' : '' }, [
@@ -283,14 +285,14 @@ function renderFeDiagram(fe, st) {
 		]),
 		// Row 1: GDM ports
 		E('div', { 'class': 'soc-gdm-grid' }, [
-			gdmCard('gdm1', 'GDM1', 'Internal Switch (1G LAN3/4)', '#ff9800', 'P1'),
-			gdmCard('gdm2', 'GDM2', 'WAN (USXGMII 10G)', '#4caf50', 'P2'),
+			gdmCard('gdm1', 'GDM1', 'Internal Switch (1G LAN3/4)', '#ff9800', 'P0'),
+			gdmCard('gdm2', 'GDM2', 'WAN (USXGMII 10G)', '#4caf50', 'P1'),
 			gdmCard('gdm4', 'GDM4', 'LAN2 (USXGMII 10G)', '#4caf50', 'P9')
 		]),
 		// Row 2: CDM1/CDM2 (CPU DMA)
 		E('div', { 'style': 'display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px' }, [
-			cdmCard('cdm1', 'CDM1', 'CPU DMA 1', 'P0'),
-			cdmCard('cdm2', 'CDM2', 'CPU DMA 2', 'P5'),
+			cdmCard('cdm1', 'CDM1', 'CPU DMA 1', 'P2'),
+			cdmCard('cdm2', 'CDM2', 'CPU DMA 2', 'P4'),
 		]),
 		// Row 3: PPE + NPU
 		E('div', { 'style': 'display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px' }, [
