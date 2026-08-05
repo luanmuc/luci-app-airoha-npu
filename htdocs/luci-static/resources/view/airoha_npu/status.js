@@ -258,8 +258,8 @@ function renderFeDiagram(fe, st) {
 	var pseP = pseT>0 ? ((fe.pse_used/pseT)*100).toFixed(1) : '0';
 	var pseCol = parseFloat(pseP)>80?'#f44336':parseFloat(pseP)>50?'#ff9800':'#4caf50';
 
-	// PSE port cells (all 10 ports: P0-P9)
-	var portCells = ports.map(function(p) {
+	// PSE port cells (all ports except P3/GDM3, which is unused on XG-040G-MD)
+	var portCells = ports.filter(function(p) { return p.port !== 3; }).map(function(p) {
 		var info = psePortMap[p.port] || { name:'P'+p.port, label:'?', color:'#666' };
 		var drop = p.drops > 0;
 		return E('div', { 'class': 'soc-pse-cell', 'style': drop ? 'border-color:#f44336' : '' }, [

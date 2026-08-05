@@ -153,10 +153,25 @@ get_status() {
 
 	# === CPU Temperature ===
 	local cpu_temp=0
-	local thermal_path="/sys/class/thermal/thermal_zone0/temp"
-	if [ -f "$thermal_path" ]; then
+	local thermal_path=""
+	# Find CPU thermal zone by type (cpu/soc/core)
+	for z in /sys/class/thermal/thermal_zone*/type; do
+		[ -f "$z" ] || continue
+		local ztype=$(cat "$z" 2>/dev/null | tr '[:upper:]' '[:lower:]')
+		case "$ztype" in
+			*cpu*|*soc*|*core*)
+				thermal_path="${z%/type}/temp"
+				break
+				;;
+		esac
+	done
+	# Fallback to thermal_zone0 if no match found
+	if [ -z "$thermal_path" ] && [ -f "/sys/class/thermal/thermal_zone0/temp" ]; then
+		thermal_path="/sys/class/thermal/thermal_zone0/temp"
+	fi
+	if [ -n "$thermal_path" ] && [ -f "$thermal_path" ]; then
 		local temp_raw=$(cat "$thermal_path" 2>/dev/null || echo 0)
-		# thermal_zone0/temp returns millidegrees Celsius
+		# thermal zone temp returns millidegrees Celsius
 		if [ -n "$temp_raw" ] && [ "$temp_raw" -gt 0 ]; then
 			cpu_temp=$((temp_raw / 1000))
 		fi
@@ -291,6 +306,12 @@ set_overclock() {
 		echo '{"error":"devmem not available"}'
 		return
 	fi
+	# Check cpufreq exists
+	local cpufreq_path="/sys/devices/system/cpu/cpufreq/policy0"
+	if [ ! -d "$cpufreq_path" ]; then
+		echo '{"error":"cpufreq not available"}'
+		return
+	fi
 	# Calculate PCW and posdiv
 	local posdiv pcw_int
 	if [ "$target_mhz" -lt 1000 ]; then
@@ -300,8 +321,9 @@ set_overclock() {
 		posdiv=0
 		pcw_int=$((target_mhz / 50))
 	fi
-	# Lock governor to performance to prevent cpufreq from fighting
-	echo performance > /sys/devices/system/cpu/cpufreq/policy0/scaling_governor 2>/dev/null
+	# Save original governor and lock to performance to prevent cpufreq from fighting
+	local orig_governor=$(cat "$cpufreq_path/scaling_governor" 2>/dev/null)
+	echo performance > "$cpufreq_path/scaling_governor" 2>/dev/null
 	# Save original register values for rollback on failure
 	local orig_clkmux=$(($(devmem 0x1fa201e0 2>/dev/null)))
 	local orig_pcw=$(($(devmem 0x1fa202b4 2>/dev/null)))
@@ -317,6 +339,8 @@ set_overclock() {
 		devmem 0x1efbe640 32 $(printf "0x%08X" $orig_u) 2>/dev/null
 		devmem 0x1efbe7c0 32 $(printf "0x%08X" $orig_s) 2>/dev/null
 		devmem 0x1fa20268 32 $(printf "0x%08X" $orig_p) 2>/dev/null
+		# Restore original governor
+		[ -n "$orig_governor" ] && echo "$orig_governor" > "$cpufreq_path/scaling_governor" 2>/dev/null
 	}
 	# Read current register values
 	local cur_clkmux=$orig_clkmux
@@ -325,7 +349,9 @@ set_overclock() {
 	# Step 1: Enable PLL2 path in CLK_MUX (set bit 2)
 	devmem 0x1fa201e0 32 $(printf "0x%08X" $((cur_clkmux | 0x4))) 2>/dev/null
 	if [ $? -ne 0 ]; then rollback_oc; echo '{"error":"failed at step 1: enable PLL2"}'; return; fi
-	# Step 2: MCUCFG switch to PLL2 (sel=3 in bits[10:9])
+	# Step 2: MCUCFG switch to PLL2
+	#   0x1efbe640: PLL config (bits[4:0] = 0x12)
+	#   0x1efbe7c0: clock select = 3 (bits[10:9])
 	local cur_u=$(($(devmem 0x1efbe640 2>/dev/null)))
 	devmem 0x1efbe640 32 $(printf "0x%08X" $(((cur_u & 0xFFFFFFE0) | 0x12))) 2>/dev/null
 	if [ $? -ne 0 ]; then rollback_oc; echo '{"error":"failed at step 2: MCUCFG switch"}'; return; fi
@@ -372,22 +398,33 @@ set_overclock() {
 		sleep 1
 	fi
 	# Step 7: Enable ARMPLL path in CLK_MUX (set bit 0)
-	local cur_clkmux2=$(($(devmem 0x1fa201e0)))
-	devmem 0x1fa201e0 32 $(printf "0x%08X" $((cur_clkmux2 | 0x1)))
+	local cur_clkmux2=$(($(devmem 0x1fa201e0 2>/dev/null)))
+	devmem 0x1fa201e0 32 $(printf "0x%08X" $((cur_clkmux2 | 0x1))) 2>/dev/null
+	if [ $? -ne 0 ]; then rollback_oc; echo '{"error":"failed at step 7: enable ARMPLL"}'; return; fi
 	# Step 8: MCUCFG switch back to ARMPLL
-	local cur_u2=$(($(devmem 0x1efbe640)))
-	devmem 0x1efbe640 32 $(printf "0x%08X" $(((cur_u2 & 0xFFFFFFE0) | 0x12)))
-	local cur_s2=$(($(devmem 0x1efbe7c0)))
-	devmem 0x1efbe7c0 32 $(printf "0x%08X" $(((cur_s2 & 0xFFFFF9FF) | (1 << 9))))
+	local cur_u2=$(($(devmem 0x1efbe640 2>/dev/null)))
+	devmem 0x1efbe640 32 $(printf "0x%08X" $(((cur_u2 & 0xFFFFFFE0) | 0x12))) 2>/dev/null
+	if [ $? -ne 0 ]; then rollback_oc; echo '{"error":"failed at step 8: MCUCFG switch back 1"}'; return; fi
+	local cur_s2=$(($(devmem 0x1efbe7c0 2>/dev/null)))
+	devmem 0x1efbe7c0 32 $(printf "0x%08X" $(((cur_s2 & 0xFFFFF9FF) | (1 << 9)))) 2>/dev/null
+	if [ $? -ne 0 ]; then rollback_oc; echo '{"error":"failed at step 8: MCUCFG switch back 2"}'; return; fi
 	# Step 9: Clear PLL2 path in CLK_MUX
-	local cur_clkmux3=$(($(devmem 0x1fa201e0)))
-	devmem 0x1fa201e0 32 $(printf "0x%08X" $((cur_clkmux3 & 0xFFFFFFFB)))
+	local cur_clkmux3=$(($(devmem 0x1fa201e0 2>/dev/null)))
+	devmem 0x1fa201e0 32 $(printf "0x%08X" $((cur_clkmux3 & 0xFFFFFFFB))) 2>/dev/null
+	if [ $? -ne 0 ]; then rollback_oc; echo '{"error":"failed at step 9: clear PLL2"}'; return; fi
 	# Step 10: Re-lock PLL registers
-	local cur_p2=$(($(devmem 0x1fa20268)))
-	devmem 0x1fa20268 32 $(printf "0x%08X" $((cur_p2 & 0xFFFFFF00)))
+	local cur_p2=$(($(devmem 0x1fa20268 2>/dev/null)))
+	devmem 0x1fa20268 32 $(printf "0x%08X" $((cur_p2 & 0xFFFFFF00))) 2>/dev/null
+	if [ $? -ne 0 ]; then rollback_oc; echo '{"error":"failed at step 10: re-lock PLL"}'; return; fi
+	# Wait for PLL to stabilize before verification
+	if command -v usleep > /dev/null 2>&1; then
+		usleep 10000
+	else
+		sleep 1
+	fi
 	# Verify
-	local final_pcw=$(($(devmem 0x1fa202b4)))
-	local final_chg=$(($(devmem 0x1fa202b8)))
+	local final_pcw=$(($(devmem 0x1fa202b4 2>/dev/null)))
+	local final_chg=$(($(devmem 0x1fa202b8 2>/dev/null)))
 	local read_pcw=$(( (final_pcw >> 24) & 0x7F ))
 	local read_posdiv=$(( (final_chg >> 4) & 7 ))
 	local read_freq
